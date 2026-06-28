@@ -20,7 +20,7 @@ public class RoadGeneratorEditor : Editor
         if (GUILayout.Button("一键根据谱面生成轨道 (Edit Mode)", GUILayout.Height(42)))
         {
             // Execute the core generator
-            generator.GenerateRoadInEditor();
+            generator.GenerateRoad();
             
             // Mark scene dirty so scene files detect modification and can be saved
             if (!Application.isPlaying)

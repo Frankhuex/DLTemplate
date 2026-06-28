@@ -1,12 +1,18 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections.Generic;
+using System.Collections;
+using UnityEngine.EventSystems; 
+using System;
+using SFB;
+using UnityEngine.Networking;
+using Unity.VisualScripting;
 
 public class PlayerController : MonoBehaviour
 {
-    [Header("Movement Settings")]
-    [Tooltip("Movement speed of the cube")]
-    public float speed = 9f;
+    public static Vector3 startPosition = new(0, 0.25f, 0);
+    public TMPro.TMP_Text notice;
+    private bool isLoading = false;
 
     [Tooltip("Gravity acceleration (should be smaller for a floaty flat-projectile fall)")]
     public float gravity = -10f;
@@ -45,13 +51,38 @@ public class PlayerController : MonoBehaviour
     // Input Actions
     private InputAction jumpAction;
     private InputAction attackAction;
+    private MeshRenderer playerRenderer;
+
+    public static string musicPath = "Gray Efflorescence.wav";
+
+    public void ApplyLineColor()
+    {
+        if (playerRenderer == null) return;
+        playerRenderer.material.SetColor("_BaseColor", SettingManager.lineColor);
+        
+    }
+
+    public void ApplyGroundColor()
+    {
+        GameObject generatedRoadTrack = GameObject.Find(RoadGenerator.GENERATED_ROAD_TRACK_STR);
+        if (generatedRoadTrack != null) {
+            foreach (Transform segment in generatedRoadTrack.transform)
+            {
+                segment.GetComponent<MeshRenderer>().material.SetColor("_BaseColor", SettingManager.groundColor);
+            }
+        }
+    }
 
     private void Start()
     {
-        // Set player local scale to a perfect cube of size trailHeight for a clean look
+        notice.gameObject.SetActive(false);
+        playerRenderer = GetComponent<MeshRenderer>();
+        ApplyLineColor();
+
+        // Set player local scale
         transform.localScale = new Vector3(trailHeight, trailHeight, trailHeight);
 
-        // Find and bind project-wide Input Actions
+        // Find and bind Input Actions
         if (InputSystem.actions != null)
         {
             jumpAction = InputSystem.actions.FindAction("Jump");
@@ -61,8 +92,49 @@ public class PlayerController : MonoBehaviour
         {
             Debug.LogWarning("Project-wide Input Actions not found. Falling back to direct keyboard spacebar check.");
         }
-    }
 
+        // =================================================================
+        // 💡 绝对路径修复：动态获取 index.html 所在目录的真实网址
+        // =================================================================
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (musicSource != null)
+        {
+            musicSource.clip = null; // 依然保持开机清空，防止时钟锁死
+        }
+
+        string initialPath = musicPath;
+
+        if (!string.IsNullOrEmpty(initialPath))
+        {
+            // 💡 核心黑魔法：借用内置的 Application.absoluteURL 
+            // 在 WebGL 端，它返回的就是当前网页的完整网址（例如 http://localhost:51389/index.html）
+            string baseUrl = Application.absoluteURL;
+
+            // 完美的字符串裁剪：剥离掉 "index.html"，拿到纯粹的网页根目录 URL
+            if (baseUrl.EndsWith("index.html"))
+            {
+                baseUrl = baseUrl.Substring(0, baseUrl.Length - "index.html".Length);
+            }
+            else if (!baseUrl.EndsWith("/"))
+            {
+                baseUrl += "/";
+            }
+
+            // 强行拼接！确保最终发给 UnityWebRequest 的路径一定是：
+            // http://localhost:xxxx/你的默认歌名.wav
+            initialPath = baseUrl + initialPath;
+        }
+
+        if (!string.IsNullOrEmpty(initialPath))
+        {
+            Debug.Log($"[WebGL绝对寻址触发] 正在请求 index.html 同目录下的静态音频，绝对网址: {initialPath}");
+            StartCoroutine(LoadAudioAndAssign(initialPath));
+        }
+#else
+        // 编辑器/PC端保持原样，直接用 Inspector 拖好的音频资产测试
+        Debug.Log("[PC/编辑器模式] 直接采用 AudioSource 挂载的默认 Clip 进行测试。");
+#endif
+    }
     private void Update()
     {
         // If dead, do absolutely nothing
@@ -71,7 +143,7 @@ public class PlayerController : MonoBehaviour
         // 1. Handle Start Game
         if (!isPlaying)
         {
-            if (CheckTurnInput())
+            if (CheckTurnInput() && !SettingManager.isImportPanelOpen && !SettingManager.isSettingPanelOpen && !isLoading)
             {
                 StartGame();
             }
@@ -88,7 +160,7 @@ public class PlayerController : MonoBehaviour
         HandlePhysicsAndFalling();
 
         // 4. Move Player (Horizontal + Vertical)
-        Vector3 moveStep = currentDirection * (speed * Time.deltaTime);
+        Vector3 moveStep = currentDirection * (RoadGenerator.speed * Time.deltaTime);
         if (!isGrounded)
         {
             moveStep += Vector3.up * (verticalVelocity * Time.deltaTime);
@@ -97,40 +169,22 @@ public class PlayerController : MonoBehaviour
 
         // 5. Update Current Trail Segment size and position
         UpdateCurrentTrail();
-
-        // 6. Check Fall Death Boundary
-        if (transform.position.y < fallDeathY)
-        {
-            Die("Fell out of bounds!");
-        }
     }
 
     private bool CheckTurnInput()
+{
+    if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
     {
-        // Check new Input System actions
-        if (jumpAction != null && jumpAction.WasPressedThisFrame())
-        {
-            return true;
-        }
-        if (attackAction != null && attackAction.WasPressedThisFrame())
-        {
-            return true;
-        }
-
-        // Fallback for keyboard spacebar in case of any issues with actions
-        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
-        {
-            return true;
-        }
-
-        // Fallback for mouse left click
-        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
-        {
-            return true;
-        }
-
         return false;
     }
+    // Fallback for keyboard spacebar
+    if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame) return true;
+
+    // Fallback for mouse left click
+    if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) return true;
+
+    return false;
+}
 
     private void StartGame()
     {
@@ -139,18 +193,45 @@ public class PlayerController : MonoBehaviour
         lastTurnPoint = transform.position;
         SpawnNewTrailSegment();
 
-        // Start playing the music if assigned
-        if (musicSource != null)
-        {
-            musicSource.volume = 1f; // Reset volume to full
-            musicSource.time = 0f;   // Seek to beginning
-            musicSource.Play();
-            Debug.Log("Music started playing!");
-        }
+        PlayMusic();
 
         Debug.Log("Dancing Line game started!");
     }
 
+    private void PlayMusic()
+    {
+        if (musicSource == null || musicSource.clip == null) return;
+
+        musicSource.volume = 1f; // 重置音量
+
+        // 💡 核心微调 A：在任何 Play 指令发出之前，先把磁带拨到正确的位置
+        if (SettingManager.latency < 0f)
+        {
+            // 负延迟（例如 -0.5s）：音乐需要裁剪掉开头的 0.5s，从 0.5s 处作为静态起点起播
+            float seekTime = Mathf.Abs(SettingManager.latency);
+            
+            // 安全保护：确保不会切过头
+            musicSource.time = Mathf.Min(seekTime, musicSource.clip.length - 0.1f);
+            
+            // 指针定死后，再踏踏实实开播，WebGL 绝对不会再触发升调、加速
+            musicSource.Play();
+            Debug.Log($"[WebGL负延迟免打架模式] 音乐已在静止状态对齐至 {musicSource.time:F2}s 并起播");
+        }
+        else if (SettingManager.latency > 0f)
+        {
+            // 正延迟（例如 +0.5s）：线条先走，音乐推迟 0.5s 播放
+            musicSource.time = 0f;
+            musicSource.PlayDelayed(SettingManager.latency);
+            Debug.Log($"[正延迟模式] 音乐将在 {SettingManager.latency} 秒后延时播放");
+        }
+        else
+        {
+            // 零延迟
+            musicSource.time = 0f;
+            musicSource.Play();
+            Debug.Log("[零延迟模式] 音乐即时起播");
+        }
+    }
     private void Turn()
     {
         // Finalize current trail segment before turning
@@ -334,7 +415,7 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    private System.Collections.IEnumerator FadeOutMusic()
+    private IEnumerator FadeOutMusic()
     {
         float startVolume = musicSource.volume;
         float elapsed = 0f;
@@ -348,5 +429,107 @@ public class PlayerController : MonoBehaviour
 
         musicSource.volume = 0f;
         musicSource.Stop();
+    }
+
+    public IEnumerator LoadAudioAndAssign(string path)
+    {
+        string url = path;
+        if (!url.Contains("://"))
+        {
+            url = "file://" + url;
+        }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // =================================================================
+        // 💡 WebGL 网页端：无论默认音频还是新导入，统一走纯字节流 + 内存解调
+        // =================================================================
+        Debug.Log($"[WebGL音频加载] 统一采用纯字节流请求，消灭默认音频时钟 Bug: {url}");
+
+        using (UnityWebRequest uwr = UnityWebRequest.Get(url))
+        {
+            uwr.downloadHandler = new DownloadHandlerBuffer();
+            yield return uwr.SendWebRequest();
+
+            if (uwr.result == UnityWebRequest.Result.Success)
+            {
+                byte[] audioRawData = uwr.downloadHandler.data;
+                string extension = System.IO.Path.GetExtension(path).ToLower();
+
+                // 强制走重新导入时的那套“免 Bug 内存解码逻辑”
+                AudioClip downloadedClip = WavAndMp3MemoryDecoder.Decode(audioRawData, extension);
+
+                if (downloadedClip != null && downloadedClip.length > 0)
+                {
+                    if (musicSource != null)
+                    {
+                        musicSource.clip = downloadedClip;
+                        AudioListener.pause = false; 
+                        Debug.Log($"[WebGL初始化成功] 默认音频已完美转为内存 clip，彻底免疫升调变调！");
+                    }
+                }
+                else
+                {
+                    Debug.LogError("[WebGL加载提示] 默认音频解码失败。请确保 StreamingAssets 下的默认音频是标准 .wav 格式！");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[WebGL网络错误] 默认音频读取失败: {uwr.error}");
+            }
+        }
+#else
+        // =================================================================
+        // 💡 PC 端 / 编辑器：保持原样，直接走高效的标准多媒体加载
+        // =================================================================
+        Debug.Log($"[PC/编辑器本地加载] 正在通过标准多媒体句柄请求音频: {url}");
+
+        AudioType audioType = GetAudioType(path);
+
+        using (UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(url, audioType))
+        {
+            yield return uwr.SendWebRequest();
+
+            if (uwr.result == UnityWebRequest.Result.Success)
+            {
+                AudioClip downloadedClip = DownloadHandlerAudioClip.GetContent(uwr);
+                if (musicSource != null && downloadedClip != null)
+                {
+                    musicSource.clip = downloadedClip;
+                    Debug.Log($"[PC/编辑器起播成功] 成功导入音乐: {downloadedClip.name}，时长: {downloadedClip.length} 秒");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[PC/编辑器加载失败] {uwr.error}");
+            }
+        }
+#endif
+    }
+    // 辅助函数：根据文件扩展名自动判定 AudioType
+    public AudioType GetAudioType(string path)
+    {
+        string ext = System.IO.Path.GetExtension(path).ToLower();
+        return ext switch
+        {
+            ".mp3" => AudioType.MPEG,
+            ".wav" => AudioType.WAV,
+            ".ogg" => AudioType.OGGVORBIS,
+            _ => AudioType.UNKNOWN,
+        };
+    }
+
+    public void SetIsDead(bool isDead)
+    {
+        this.isDead = isDead;
+    }
+
+    public List<GameObject> GetSpawnedTrails()
+    {
+        return spawnedTrails;
+    }
+
+    public void SetCurrentDirection(Vector3 direction)
+    {
+        currentDirection = direction;
     }
 }

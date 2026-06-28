@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 11994947044464941}
   - component: {fileID: 2749665794027678815}
   - component: {fileID: 8942772461372064947}
+  - component: {fileID: 6374514722502700189}
   m_Layer: 0
   m_Name: TrailSegment
   m_TagString: Untagged
@@ -66,7 +67,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 2412f6942c1dc42e4a0e17f95678b947, type: 2}
+  - {fileID: 2100000, guid: e3c1a82174c1d47b0acc2b8f8a1dc04e, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -90,3 +91,15 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &6374514722502700189
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7367788267956518901}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3fce4422d62a34cc6bd23942d5f48381, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ColorApplier

@@ -4,6 +4,8 @@ using UnityEngine.SceneManagement;
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
+    public GameObject player;
+    private PlayerController playerController;
 
     [Header("UI Reference")]
     [Tooltip("The GameObject of the Game Over canvas")]
@@ -26,6 +28,7 @@ public class GameManager : MonoBehaviour
         {
             gameOverUI.SetActive(false);
         }
+        playerController = player.GetComponent<PlayerController>();
     }
 
     public void GameOver()
@@ -47,6 +50,14 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("Restarting scene...");
         // Reload current scene
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        // SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        gameOverUI.SetActive(false);
+        player.transform.position = PlayerController.startPosition;
+        foreach (var trail in playerController.GetSpawnedTrails())
+        {
+            Destroy(trail);
+        }
+        playerController.SetIsDead(false);
+        playerController.SetCurrentDirection(Vector3.forward);
     }
 }

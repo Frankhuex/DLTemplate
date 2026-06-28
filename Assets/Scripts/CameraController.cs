@@ -7,6 +7,7 @@ public class CameraController : MonoBehaviour
 
     [Tooltip("Offset distance from the target")]
     public Vector3 offset = new Vector3(-6f, 8f, -6f);
+    public Vector3 offset2 = new Vector3(0, 0, 0);
 
     [Tooltip("Smoothing factor")]
     public float smoothTime = 0.15f;
@@ -19,7 +20,7 @@ public class CameraController : MonoBehaviour
         if (target != null)
         {
             transform.position = target.position + offset;
-            transform.rotation = Quaternion.LookRotation(target.position - transform.position);
+            transform.rotation = Quaternion.LookRotation(target.position - transform.position + offset2);
         }
     }
 
